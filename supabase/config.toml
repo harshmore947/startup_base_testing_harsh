@@ -1,0 +1,16 @@
+project_id = "sevjezttvhkgxybgedto"
+
+[functions.validate-access-code]
+verify_jwt = false
+
+[functions.create-ccavenue-order]
+verify_jwt = true
+
+[functions.ccavenue-response]
+verify_jwt = false
+
+[functions.store-research-request]
+verify_jwt = true
+
+[functions.delete-user-account]
+verify_jwt = true
