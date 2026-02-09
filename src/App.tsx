@@ -98,7 +98,9 @@ const queryClient = new QueryClient({
       staleTime: 1000 * 60 * 5, // 5 minutes
       gcTime: 1000 * 60 * 30,   // 30 minutes cache
       refetchOnWindowFocus: false,
-      retry: 1,
+      refetchOnReconnect: true,  // Refetch when network reconnects
+      retry: 3,                  // Retry failed requests 3 times before giving up
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 15000), // Exponential backoff: 1s, 2s, 4s (max 15s)
     },
   },
 });

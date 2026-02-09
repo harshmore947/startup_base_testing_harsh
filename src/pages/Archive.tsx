@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { MessageCircle, TrendingUp, DollarSign, Loader2 } from 'lucide-react';
+import { MessageCircle, TrendingUp, DollarSign, Loader2, AlertCircle } from 'lucide-react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -58,6 +58,8 @@ export default function Archive() {
   const {
     data,
     isLoading: ideasLoading,
+    isError: ideasError,
+    refetch: refetchIdeas,
     isFetchingNextPage,
     hasNextPage,
     fetchNextPage,
@@ -195,7 +197,14 @@ export default function Archive() {
           </div>
         </div>
 
-        {ideasLoading ? (
+        {ideasError ? (
+          <div className="text-center py-16 space-y-4">
+            <AlertCircle className="w-12 h-12 text-destructive mx-auto" />
+            <h2 className="text-xl font-bold">Failed to load ideas</h2>
+            <p className="text-muted-foreground">Please check your connection and try again.</p>
+            <Button onClick={() => refetchIdeas()}>Try Again</Button>
+          </div>
+        ) : ideasLoading ? (
           <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
             {[...Array(6)].map((_, i) => (
               <div key={i} className="bg-card border border-border rounded-lg p-4 sm:p-6 animate-pulse">
@@ -212,7 +221,7 @@ export default function Archive() {
               {filteredIdeas.map((idea) => (
                 <Card key={idea.id} className="bg-card border-border hover:border-primary/50 transition-all duration-200">
                    <CardHeader>
-                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
+                     <div className="flex flex-col sm:flex-row sm:items-between sm:justify-between gap-2 mb-2">
                        <CardTitle className="text-base sm:text-lg">{idea.title}</CardTitle>
                        <div className="flex items-center gap-2 flex-wrap">
                          {idea.industry && (

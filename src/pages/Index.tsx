@@ -587,9 +587,9 @@ const Index = () => {
   };
   
   // Fetch the idea of the day
-  const { data: ideaOfTheDay, isLoading } = useIdeaOfTheDay();
+  const { data: ideaOfTheDay, isLoading, isError, error, refetch } = useIdeaOfTheDay();
 
-  logger.log('Query state - isLoading:', isLoading, 'data:', ideaOfTheDay);
+  logger.log('Query state - isLoading:', isLoading, 'isError:', isError, 'data:', ideaOfTheDay);
 
   // Debug Reddit data
   if (ideaOfTheDay) {
@@ -607,6 +607,25 @@ const Index = () => {
   
   if (!hasAccess) {
     return <Navigate to="/waitlist" replace />;
+  }
+
+  // Show error state with retry button when fetching fails
+  if (isError) {
+    logger.error('Failed to fetch idea of the day:', error);
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <AlertCircle className="w-12 h-12 text-destructive mx-auto" />
+          <h1 className="text-2xl font-bold">Something went wrong</h1>
+          <p className="text-muted-foreground max-w-md">
+            We couldn't load the data. Please check your internet connection and try again.
+          </p>
+          <Button onClick={() => refetch()} size="lg">
+            Try Again
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   if (!ideaOfTheDay) {

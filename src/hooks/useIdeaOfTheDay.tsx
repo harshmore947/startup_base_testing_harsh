@@ -34,5 +34,6 @@ export function useIdeaOfTheDay() {
     },
     staleTime: 1000 * 60 * 5, // 5 minutes - idea of the day doesn't change frequently
     gcTime: 1000 * 60 * 30, // 30 minutes cache
+    refetchOnMount: 'always', // Always try to fetch when component mounts (uses cache while fetching)
   });
 }

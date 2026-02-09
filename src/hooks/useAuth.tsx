@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useRef, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
@@ -32,169 +32,151 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const queryClient = useQueryClient();
 
-  // Track which user ID we've already fetched / are fetching to prevent duplicates
-  const fetchingForUserRef = useRef<string | null>(null);
+  // Track last fetched user ID (for refreshUserProfile deduplication)
   const lastFetchedUserRef = useRef<string | null>(null);
-  const initialSessionHandled = useRef(false);
-
-  // Fetch user profile from database with timeout — single, deduplicated call
-  const fetchUserProfile = useCallback(async (userId: string, force = false): Promise<UserProfile | null> => {
-    // Skip if we're already fetching for this user (prevents concurrent duplicate calls)
-    if (!force && fetchingForUserRef.current === userId) {
-      logger.log('Skipping duplicate fetchUserProfile for:', userId);
-      return userProfile;
-    }
-
-    // Skip if we already have the profile for this user and it's not a forced refresh
-    if (!force && lastFetchedUserRef.current === userId && userProfile) {
-      logger.log('Profile already cached for:', userId);
-      return userProfile;
-    }
-
-    fetchingForUserRef.current = userId;
-
-    try {
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Profile fetch timeout')), 10000)
-      );
-
-      const fetchPromise = supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      const { data, error } = await Promise.race([fetchPromise, timeoutPromise]) as any;
-
-      if (error) {
-        logger.error('Error fetching user profile:', error);
-        return null;
-      }
-
-      lastFetchedUserRef.current = userId;
-      return data;
-    } catch (error) {
-      logger.error('Exception fetching user profile:', error);
-      return null;
-    } finally {
-      // Clear the "fetching" lock only if it's still for this user
-      if (fetchingForUserRef.current === userId) {
-        fetchingForUserRef.current = null;
-      }
-    }
-  }, [userProfile]);
 
   useEffect(() => {
-    // Set up auth state listener FIRST
+    // Single auth listener — handles BOTH initial session (page refresh) and sign-in.
+    // Removed the separate getSession() call that caused a race condition where
+    // `loading` was set to false before `userProfile` was fetched.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        logger.log('Auth state change:', event, 'User ID:', session?.user?.id);
-        setSession(session);
-        setUser(session?.user ?? null);
+      async (event, currentSession) => {
+        logger.log('Auth state change:', event, 'User ID:', currentSession?.user?.id);
 
-        if (!session?.user) {
-          // User signed out — clear everything
+        // Synchronously update session & user (React batches these)
+        setSession(currentSession);
+        setUser(currentSession?.user ?? null);
+
+        if (!currentSession?.user) {
+          // User signed out or no session — clear everything
           setUserProfile(null);
           lastFetchedUserRef.current = null;
-          fetchingForUserRef.current = null;
           setLoading(false);
           return;
         }
 
-        // For INITIAL_SESSION event, skip if getSession already handled it
-        if (event === 'INITIAL_SESSION' && initialSessionHandled.current) {
-          logger.log('INITIAL_SESSION skipped — already handled by getSession');
-          setLoading(false);
-          return;
-        }
+        const userId = currentSession.user.id;
 
-        // For non-SIGNED_IN events (e.g. TOKEN_REFRESHED), just fetch profile once
-        if (event !== 'SIGNED_IN') {
-          const profile = await fetchUserProfile(session.user.id);
-          if (profile) setUserProfile(profile);
-          setLoading(false);
-          return;
-        }
-
-        // SIGNED_IN event — handle new/existing user in a single flow with minimal calls
-        setLoading(false);
-
-        // Invalidate related React Query caches
-        queryClient.invalidateQueries({ queryKey: ['user-profile-premium'] });
-        queryClient.invalidateQueries({ queryKey: ['user-profile-pricing'] });
-
-        try {
-          // Single query to check if user profile exists (also gets the full profile)
-          const { data: existingProfile, error } = await supabase
-                .from('users')
-            .select('*')
-                .eq('id', session.user.id)
-            .maybeSingle();
-
-          if (error) {
-            logger.error('Error checking user profile:', error);
-            return;
-          }
-
-              if (existingProfile) {
-                logger.log('Existing user profile found, subscription status:', existingProfile.subscription_status);
-            // Set profile immediately from the data we already have (no extra fetch!)
-            setUserProfile(existingProfile);
-            lastFetchedUserRef.current = session.user.id;
-
-            // Update email in background if needed (non-blocking, no refetch)
-            if (existingProfile.email !== session.user.email) {
-              supabase
-                  .from('users')
-                  .update({ email: session.user.email })
-                .eq('id', session.user.id)
-                .then(() => {
-                  // Update local state without another API call
-                  setUserProfile(prev => prev ? { ...prev, email: session.user.email! } : prev);
-                });
-            }
-              } else {
-                logger.log('Creating new user profile with free subscription');
-            // New user — insert and use returned data
-            const { data: newProfile } = await supabase
-                  .from('users')
-                  .insert({
-                    id: session.user.id,
-                    email: session.user.email,
-                    subscription_status: 'free',
-                    subscription_plan: 'free',
-                    has_completed_onboarding: false
-              })
+        // ─── INITIAL_SESSION (page refresh) ───
+        // Fetch the profile FIRST, then set loading false — this prevents the race
+        // condition where PremiumGate/AuthGate saw loading=false but userProfile=null.
+        if (event === 'INITIAL_SESSION') {
+          try {
+            const { data: profile, error } = await supabase
+              .from('users')
               .select('*')
+              .eq('id', userId)
               .single();
 
-            if (newProfile) {
-                setUserProfile(newProfile);
-              lastFetchedUserRef.current = session.user.id;
+            if (error) {
+              logger.error('Error fetching user profile on refresh:', error);
+            } else if (profile) {
+              setUserProfile(profile);
+              lastFetchedUserRef.current = userId;
+              logger.log('Profile loaded on refresh, subscription:', profile.subscription_status);
             }
-              }
-            } catch (error) {
-              logger.error('Error handling user profile:', error);
+          } catch (err) {
+            logger.error('Exception fetching profile on refresh:', err);
+          } finally {
+            // loading is ONLY set to false AFTER the profile fetch completes or fails
+            setLoading(false);
+          }
+          return;
         }
+
+        // ─── TOKEN_REFRESHED ───
+        // Token was refreshed in the background — no need to refetch the profile
+        if (event === 'TOKEN_REFRESHED') {
+          setLoading(false);
+          return;
+        }
+
+        // ─── SIGNED_IN (fresh login / OAuth callback) ───
+        if (event === 'SIGNED_IN') {
+          // Invalidate related React Query caches
+          queryClient.invalidateQueries({ queryKey: ['user-profile-premium'] });
+          queryClient.invalidateQueries({ queryKey: ['user-profile-pricing'] });
+
+          try {
+            // Single query to check if user profile exists (also gets the full profile)
+            const { data: existingProfile, error } = await supabase
+              .from('users')
+              .select('*')
+              .eq('id', userId)
+              .maybeSingle();
+
+            if (error) {
+              logger.error('Error checking user profile:', error);
+              setLoading(false);
+              return;
+            }
+
+            if (existingProfile) {
+              logger.log('Existing user profile found, subscription status:', existingProfile.subscription_status);
+              // Set profile immediately from the data we already have
+              setUserProfile(existingProfile);
+              lastFetchedUserRef.current = userId;
+
+              // Update email in background if needed (non-blocking)
+              if (existingProfile.email !== currentSession.user.email) {
+                supabase
+                  .from('users')
+                  .update({ email: currentSession.user.email })
+                  .eq('id', userId)
+                  .then(() => {
+                    setUserProfile(prev => prev ? { ...prev, email: currentSession.user.email! } : prev);
+                  });
+              }
+            } else {
+              logger.log('Creating new user profile with free subscription');
+              // New user — insert and use returned data
+              const { data: newProfile } = await supabase
+                .from('users')
+                .insert({
+                  id: userId,
+                  email: currentSession.user.email,
+                  subscription_status: 'free',
+                  subscription_plan: 'free',
+                  has_completed_onboarding: false
+                })
+                .select('*')
+                .single();
+
+              if (newProfile) {
+                setUserProfile(newProfile);
+                lastFetchedUserRef.current = userId;
+              }
+            }
+          } catch (error) {
+            logger.error('Error handling user profile:', error);
+          } finally {
+            setLoading(false);
+          }
+          return;
+        }
+
+        // ─── SIGNED_OUT or any other event ───
+        setLoading(false);
       }
     );
 
-    // THEN check for existing session (handles page refresh)
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      initialSessionHandled.current = true;
-      setSession(session);
-      setUser(session?.user ?? null);
+    // Safety timeout: if onAuthStateChange never fires (e.g. Supabase fails silently),
+    // don't keep the app stuck on the loading screen forever.
+    const safetyTimeout = setTimeout(() => {
+      setLoading(prev => {
+        if (prev) {
+          logger.warn('Auth safety timeout — forcing loading to false after 5s');
+          return false;
+        }
+        return prev;
+      });
+    }, 5000);
 
-      if (session?.user) {
-        const profile = await fetchUserProfile(session.user.id);
-        if (profile) setUserProfile(profile);
-      }
-
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
+    return () => {
+      clearTimeout(safetyTimeout);
+      subscription.unsubscribe();
+    };
+  }, [queryClient]);
 
   const signUp = async (email: string, password: string, redirectPath?: string) => {
     // Use provided redirect path or default to homepage (backwards compatible)
@@ -247,9 +229,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    // Force a fresh fetch
-    const profile = await fetchUserProfile(user.id, true);
-    if (profile) setUserProfile(profile);
+    try {
+      const { data: profile, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (error) {
+        logger.error('Error refreshing user profile:', error);
+        return;
+      }
+
+      if (profile) {
+        setUserProfile(profile);
+        lastFetchedUserRef.current = user.id;
+      }
+    } catch (err) {
+      logger.error('Exception refreshing user profile:', err);
+    }
 
     // Also invalidate React Query caches
     queryClient.invalidateQueries({ queryKey: ['user-profile-premium'] });
