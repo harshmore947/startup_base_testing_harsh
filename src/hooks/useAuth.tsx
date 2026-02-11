@@ -36,143 +36,141 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const lastFetchedUserRef = useRef<string | null>(null);
 
   useEffect(() => {
-    // Single auth listener — handles BOTH initial session (page refresh) and sign-in.
-    // Removed the separate getSession() call that caused a race condition where
-    // `loading` was set to false before `userProfile` was fetched.
+    let isMounted = true;
+
+    // Helper function to fetch user profile (with timeout to prevent hanging)
+    const fetchUserProfile = async (userId: string, userEmail: string | undefined) => {
+      try {
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Profile fetch timeout')), 10000)
+        );
+
+        const fetchPromise = supabase
+          .from('users')
+          .select('*')
+          .eq('id', userId)
+          .maybeSingle();
+
+        const { data: existingProfile, error } = await Promise.race([fetchPromise, timeoutPromise]) as any;
+
+        if (!isMounted) return;
+
+        if (error) {
+          logger.error('Error checking user profile:', error);
+          return;
+        }
+
+        if (existingProfile) {
+          logger.log('Existing user profile found, subscription status:', existingProfile.subscription_status);
+          setUserProfile(existingProfile);
+          lastFetchedUserRef.current = userId;
+
+          // Update email in background if needed (non-blocking)
+          if (existingProfile.email !== userEmail) {
+            supabase
+              .from('users')
+              .update({ email: userEmail })
+              .eq('id', userId)
+              .then(() => {
+                if (isMounted) {
+                  setUserProfile(prev => prev ? { ...prev, email: userEmail! } : prev);
+                }
+              });
+          }
+        } else {
+          logger.log('Creating new user profile with free subscription');
+          const { data: newProfile } = await supabase
+            .from('users')
+            .insert({
+              id: userId,
+              email: userEmail,
+              subscription_status: 'free',
+              subscription_plan: 'free',
+              has_completed_onboarding: false
+            })
+            .select('*')
+            .single();
+
+          if (isMounted && newProfile) {
+            setUserProfile(newProfile);
+            lastFetchedUserRef.current = userId;
+          }
+        }
+      } catch (error) {
+        logger.error('Error handling user profile:', error);
+      }
+    };
+
+    // ── 1. Set up auth listener ──
+    // IMPORTANT: Callback is intentionally NON-async (synchronous).
+    // Async work is deferred with setTimeout(0) to avoid holding Supabase's
+    // internal auth lock, which can cause deadlocks on page refresh.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, currentSession) => {
+      (event, currentSession) => {
+        if (!isMounted) return;
         logger.log('Auth state change:', event, 'User ID:', currentSession?.user?.id);
 
-        // Synchronously update session & user (React batches these)
+        // Always update session and user state synchronously for ALL events
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
 
+        // ─── No user session (SIGNED_OUT or null session) ───
         if (!currentSession?.user) {
-          // User signed out or no session — clear everything
           setUserProfile(null);
           lastFetchedUserRef.current = null;
           setLoading(false);
           return;
         }
 
-        const userId = currentSession.user.id;
-
-        // ─── INITIAL_SESSION (page refresh) ───
-        // Fetch the profile FIRST, then set loading false — this prevents the race
-        // condition where PremiumGate/AuthGate saw loading=false but userProfile=null.
-        if (event === 'INITIAL_SESSION') {
-          try {
-            const { data: profile, error } = await supabase
-              .from('users')
-              .select('*')
-              .eq('id', userId)
-              .single();
-
-            if (error) {
-              logger.error('Error fetching user profile on refresh:', error);
-            } else if (profile) {
-              setUserProfile(profile);
-              lastFetchedUserRef.current = userId;
-              logger.log('Profile loaded on refresh, subscription:', profile.subscription_status);
-            }
-          } catch (err) {
-            logger.error('Exception fetching profile on refresh:', err);
-          } finally {
-            // loading is ONLY set to false AFTER the profile fetch completes or fails
-            setLoading(false);
-          }
-          return;
-        }
-
         // ─── TOKEN_REFRESHED ───
-        // Token was refreshed in the background — no need to refetch the profile
+        // Token was refreshed — session/user already updated above.
+        // No need to re-fetch profile, just ensure loading is cleared.
         if (event === 'TOKEN_REFRESHED') {
           setLoading(false);
           return;
         }
 
-        // ─── SIGNED_IN (fresh login / OAuth callback) ───
-        if (event === 'SIGNED_IN') {
+        // ─── INITIAL_SESSION (page refresh) or SIGNED_IN (fresh login) ───
+        // Defer async profile fetching outside the auth lock using setTimeout
+        if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
           // Invalidate related React Query caches
           queryClient.invalidateQueries({ queryKey: ['user-profile-premium'] });
           queryClient.invalidateQueries({ queryKey: ['user-profile-pricing'] });
 
-          try {
-            // Single query to check if user profile exists (also gets the full profile)
-            const { data: existingProfile, error } = await supabase
-              .from('users')
-              .select('*')
-              .eq('id', userId)
-              .maybeSingle();
-
-            if (error) {
-              logger.error('Error checking user profile:', error);
-              setLoading(false);
-              return;
+          setTimeout(async () => {
+            if (!isMounted) return;
+            try {
+              await fetchUserProfile(currentSession.user.id, currentSession.user.email);
+            } catch (error) {
+              logger.error('Error handling user profile:', error);
+            } finally {
+              if (isMounted) setLoading(false);
             }
-
-            if (existingProfile) {
-              logger.log('Existing user profile found, subscription status:', existingProfile.subscription_status);
-              // Set profile immediately from the data we already have
-              setUserProfile(existingProfile);
-              lastFetchedUserRef.current = userId;
-
-              // Update email in background if needed (non-blocking)
-              if (existingProfile.email !== currentSession.user.email) {
-                supabase
-                  .from('users')
-                  .update({ email: currentSession.user.email })
-                  .eq('id', userId)
-                  .then(() => {
-                    setUserProfile(prev => prev ? { ...prev, email: currentSession.user.email! } : prev);
-                  });
-              }
-            } else {
-              logger.log('Creating new user profile with free subscription');
-              // New user — insert and use returned data
-              const { data: newProfile } = await supabase
-                .from('users')
-                .insert({
-                  id: userId,
-                  email: currentSession.user.email,
-                  subscription_status: 'free',
-                  subscription_plan: 'free',
-                  has_completed_onboarding: false
-                })
-                .select('*')
-                .single();
-
-              if (newProfile) {
-                setUserProfile(newProfile);
-                lastFetchedUserRef.current = userId;
-              }
-            }
-          } catch (error) {
-            logger.error('Error handling user profile:', error);
-          } finally {
-            setLoading(false);
-          }
+          }, 0);
           return;
         }
 
-        // ─── SIGNED_OUT or any other event ───
-        setLoading(false);
+        // Any other event — just ensure loading is false
+        if (isMounted) setLoading(false);
       }
     );
 
-    // Safety timeout: if onAuthStateChange never fires (e.g. Supabase fails silently),
-    // don't keep the app stuck on the loading screen forever.
+    // ── 2. Safety timeout to prevent infinite loading ──
+    // If INITIAL_SESSION doesn't fire within 5 seconds (edge case),
+    // force loading to false to prevent the app from being stuck
     const safetyTimeout = setTimeout(() => {
-      setLoading(prev => {
-        if (prev) {
-          logger.warn('Auth safety timeout — forcing loading to false after 5s');
+      if (isMounted) {
+        setLoading((current) => {
+          if (current) {
+            logger.warn('Auth safety timeout: forcing loading to false');
+          }
           return false;
-        }
-        return prev;
-      });
+        });
+      }
     }, 5000);
 
     return () => {
+      isMounted = false;
       clearTimeout(safetyTimeout);
       subscription.unsubscribe();
     };
