@@ -31,7 +31,7 @@ export function usePayment() {
         return;
       }
 
-      const { data, error } = await supabase.functions.invoke('create-ccavenue-order', {
+      const { data, error } = await supabase.functions.invoke('test-create-ccavenue-order', {
         body: { plan_type: 'premium_annual' },
         headers: { Authorization: `Bearer ${session.access_token}` }
       });
@@ -104,7 +104,7 @@ export function usePayment() {
     try {
       logger.info('Initiating guest checkout for:', guestData.email);
 
-      const { data, error } = await supabase.functions.invoke('create-guest-ccavenue-order', {
+      const { data, error } = await supabase.functions.invoke('test-create-guest-ccavenue-order', {
         body: {
           plan_type: 'premium_annual',
           email: guestData.email,

@@ -14,6 +14,7 @@ import { PremiumGate } from "@/components/PremiumGate";
 import { AuthGate } from "@/components/AuthGate";
 import { DeferredAnalytics } from "@/components/DeferredAnalytics";
 import { lazy, Suspense } from "react";
+import ScrollManager from "./hooks/useScrollManager";
 
 // Loading component for suspense fallback
 const PageLoader = () => (
@@ -120,7 +121,8 @@ const AppContent = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <ScrollToTop />
+      {/* <ScrollToTop /> */}
+      <ScrollManager/>
       {showHeaderFooter && (
         <>
           <Header />
@@ -128,6 +130,7 @@ const AppContent = () => {
       )}
       <main className="flex-1">
         <Suspense fallback={<PageLoader />}>
+        
           <Routes>
             <Route path="/waitlist" element={<WaitlistPage />} />
             <Route path="/" element={<Index />} />

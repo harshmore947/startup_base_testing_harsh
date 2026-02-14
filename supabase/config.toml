@@ -14,3 +14,15 @@ verify_jwt = true
 
 [functions.delete-user-account]
 verify_jwt = true
+
+# ============================================
+# TEST FUNCTIONS - Remove after testing
+# ============================================
+[functions.test-create-ccavenue-order]
+verify_jwt = true
+
+[functions.test-create-guest-ccavenue-order]
+verify_jwt = false
+
+[functions.test-ccavenue-response]
+verify_jwt = false

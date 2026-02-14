@@ -268,7 +268,7 @@ export default function NewIdea() {
           {/* Badge */}
           <div className="flex justify-center mb-6">
             <Badge className="bg-gradient-to-r from-amber-500 to-orange-500 text-white border-0 px-4 py-1.5 text-sm font-semibold shadow-lg">
-              🎄 Idea of the Day
+              🎄 Idea of the Day testing 2
             </Badge>
           </div>
 
