@@ -1,5 +1,5 @@
 import { ReactNode, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 
 interface AuthGateProps {
@@ -9,12 +9,17 @@ interface AuthGateProps {
 export function AuthGate({ children }: AuthGateProps) {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     if (!loading && !user) {
-      navigate('/auth?mode=login');
+      // Store current path for redirect after auth
+      const currentPath = location.pathname + location.search;
+      sessionStorage.setItem('auth_redirect_path', currentPath);
+      console.log('[AuthGate] Storing redirect path:', currentPath);
+      navigate(`/auth?mode=login&redirect=${encodeURIComponent(currentPath)}`);
     }
-  }, [user, loading, navigate]);
+  }, [user, loading, navigate, location]);
 
   if (loading) {
     return (

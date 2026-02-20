@@ -68,7 +68,27 @@ export default function Auth() {
 
   // Get redirect parameter with security validation
   const redirectParam = searchParams.get('redirect');
-  const ALLOWED_REDIRECTS = ['/', '/pricing', '/archive', '/dashboard', '/idea-report', '/destination'];
+  const ALLOWED_REDIRECTS = [
+    '/',
+    '/pricing',
+    '/archive',
+    '/dashboard',
+    '/idea-report',
+    '/destination',
+    '/build-idea',
+    '/user-report',
+    '/user-build-idea',
+    '/account',
+    '/research-my-idea',
+    '/new-idea',
+    '/landing-page',
+    '/new-landing-page',
+    '/leads',
+    '/blogs',
+    '/blog',
+    '/about',
+    '/contact'
+  ];
 
   const getRedirectUrl = (consumeSession: boolean = false) => {
     // Only check sessionStorage/localStorage if explicitly consuming (after OAuth callback)

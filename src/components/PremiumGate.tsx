@@ -1,5 +1,5 @@
-import { ReactNode } from 'react';
-import { Navigate, Link } from 'react-router-dom';
+import { ReactNode, useEffect } from 'react';
+import { Navigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { logger } from '@/lib/logger';
@@ -12,6 +12,15 @@ interface PremiumGateProps {
 
 export function PremiumGate({ children, fallback = 'redirect' }: PremiumGateProps) {
   const { user, loading: authLoading, isPremium, userProfile } = useAuth();
+  const location = useLocation();
+
+  // Store current path for redirect after auth/upgrade
+  useEffect(() => {
+    if (!authLoading) {
+      const currentPath = location.pathname + location.search;
+      sessionStorage.setItem('auth_redirect_path', currentPath);
+    }
+  }, [authLoading, location]);
 
   if (authLoading) {
     return (
@@ -21,9 +30,10 @@ export function PremiumGate({ children, fallback = 'redirect' }: PremiumGateProp
     );
   }
 
-  // Not authenticated - redirect to auth
+  // Not authenticated - redirect to auth with current path
   if (!user) {
-    return <Navigate to="/auth" replace />;
+    const currentPath = location.pathname + location.search;
+    return <Navigate to={`/auth?mode=login&redirect=${encodeURIComponent(currentPath)}`} replace />;
   }
 
   // Debug logging

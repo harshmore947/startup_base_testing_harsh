@@ -23,6 +23,11 @@ export function Header() {
   // Check if we're on About or Contact page
   const isPublicPage = location.pathname === '/about' || location.pathname === '/contact';
 
+  // Create auth URL with current path as redirect
+  const currentPath = location.pathname + location.search;
+  const signupUrl = `/auth?mode=signup&redirect=${encodeURIComponent(currentPath)}`;
+  const loginUrl = `/auth?mode=login&redirect=${encodeURIComponent(currentPath)}`;
+
   // Get user role from secure user_roles table
   const { data: userRole } = useQuery({
     queryKey: ['user-role', user?.id],
@@ -175,7 +180,7 @@ export function Header() {
                           asChild
                           className="w-full h-12 bg-gray-900 text-white hover:bg-gray-800"
                         >
-                          <Link to="/auth?mode=signup" onClick={() => setMobileMenuOpen(false)}>
+                          <Link to={signupUrl} onClick={() => setMobileMenuOpen(false)}>
                             Sign Up
                           </Link>
                         </Button>
@@ -184,7 +189,7 @@ export function Header() {
                           asChild
                           className="w-full h-12"
                         >
-                          <Link to="/auth?mode=login" onClick={() => setMobileMenuOpen(false)}>
+                          <Link to={loginUrl} onClick={() => setMobileMenuOpen(false)}>
                             Log In
                           </Link>
                         </Button>
@@ -234,14 +239,14 @@ export function Header() {
                   asChild
                   className="hidden md:inline-flex bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 >
-                  <Link to="/auth?mode=signup">Sign Up</Link>
+                  <Link to={signupUrl}>Sign Up</Link>
                 </Button>
                 <Button
                   variant="outline"
                   asChild
                   className="hidden md:inline-flex px-4 py-2 rounded-lg text-sm font-medium transition-colors focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 >
-                  <Link to="/auth?mode=login">Log In</Link>
+                  <Link to={loginUrl}>Log In</Link>
                 </Button>
               </>
             ) : (

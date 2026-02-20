@@ -28,6 +28,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { usePayment } from '@/hooks/usePayment';
+import { supabase } from '@/integrations/supabase/client';
+import { useQuery } from '@tanstack/react-query';
 import { toast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -210,7 +212,7 @@ const comparisonFeatures = [
 ];
 
 export default function Destination() {
-  const { user, isPremium } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const { initiatePayment, initiateGuestPayment, isProcessing } = usePayment();
   const [openFaq, setOpenFaq] = useState<number | null>(null);
@@ -223,6 +225,22 @@ export default function Destination() {
   const [guestEmail, setGuestEmail] = useState('');
   const [guestName, setGuestName] = useState('');
   const paymentTriggered = useRef(false);
+
+  const { data: userProfile, isLoading: profileLoading } = useQuery({
+    queryKey: ['user-profile-destination', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const { data } = await supabase
+        .from('users')
+        .select('subscription_status')
+        .eq('id', user.id)
+        .single();
+      return data;
+    },
+    enabled: !!user?.id
+  });
+
+  const isPremium = userProfile?.subscription_status === 'premium';
 
   // Combined effect for welcome message and auto-payment
   useEffect(() => {
